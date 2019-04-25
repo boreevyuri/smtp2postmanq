@@ -1,0 +1,29 @@
+image: docker:stable
+services:
+  - docker:dind
+
+variables:
+  CONTAINER_IMAGE: registry.halfi.ru/$CI_PROJECT_PATH
+
+stages:
+  - build
+
+before_script:
+  - docker info
+  - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+
+build:
+  stage: build
+  script:
+    - docker build --pull -t $CONTAINER_IMAGE:$CI_COMMIT_REF_NAME .
+    - docker push $CONTAINER_IMAGE:$CI_COMMIT_REF_NAME
+  except:
+    refs:
+      - master
+
+build-stable:
+  stage: build
+  script:
+    - docker build --pull -t $CONTAINER_IMAGE:latest .
+    - docker push $CONTAINER_IMAGE:latest
+  when: manual
