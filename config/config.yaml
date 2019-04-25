@@ -1,0 +1,15 @@
+smtp:
+  addr: ':1025'
+  domain: 'localhost'
+  login: 'smtp_login'
+  password: 'smtp_password'
+amqp:
+  login: 'guest'
+  password: 'guest'
+  host: 'localhost'
+  port: 5672
+  virtual_host: ''
+  queue: 'postmanq'
+  routing_key: ''
+http:
+  addr: ':1333'
