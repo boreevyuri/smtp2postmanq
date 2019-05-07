@@ -27,7 +27,7 @@ var (
 type SendMail struct {
 	Envelop   string `json:"envelope"`
 	Recipient string `json:"recipient"`
-	Body      string `json:"body"`
+	Body      []byte `json:"body"`
 }
 
 type IAMQP interface {

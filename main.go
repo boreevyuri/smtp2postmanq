@@ -42,7 +42,7 @@ func (be *Backend) AnonymousLogin(state *smtp.ConnectionState) (smtp.User, error
 
 // A User is returned after successful login.
 type User struct {
-	cfg *viper.Viper
+	cfg  *viper.Viper
 	amqp amqp.IAMQP
 }
 
@@ -57,9 +57,9 @@ func (u *User) Send(from string, to []string, r io.Reader) (err error) {
 			recepient = to[0]
 		}
 		err = u.amqp.SendEmailToQueue(amqp.SendMail{
-			Envelop:from,
-			Recipient:recepient,
-			Body:buf.String(),
+			Envelop:   from,
+			Recipient: recepient,
+			Body:      buf.Bytes(),
 		})
 		if err != nil {
 			return
@@ -93,7 +93,7 @@ func main() {
 	s.MaxRecipients = 50
 	s.AllowInsecureAuth = true
 
-	go func(){
+	go func() {
 		log.Println("Starting smtp server at", s.Addr)
 
 		if err := s.ListenAndServe(); err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
