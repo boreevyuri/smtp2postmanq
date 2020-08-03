@@ -9,9 +9,9 @@ import (
 	"log"
 	"time"
 
-	"smtp2postmanq/healthcheck"
-	"smtp2postmanq/shutdown"
-	"smtp2postmanq/utils"
+	"smtp2postmanq/internal/healthcheck"
+	"smtp2postmanq/internal/shutdown"
+	"smtp2postmanq/internal/utils"
 
 	"github.com/spf13/viper"
 	"github.com/streadway/amqp"

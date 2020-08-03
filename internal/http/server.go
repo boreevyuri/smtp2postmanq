@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"os"
 
-	"smtp2postmanq/healthcheck"
-	"smtp2postmanq/shutdown"
+	"smtp2postmanq/internal/healthcheck"
+	"smtp2postmanq/internal/shutdown"
 
 	"github.com/spf13/viper"
 )

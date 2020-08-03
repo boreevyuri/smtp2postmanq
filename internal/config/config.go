@@ -4,7 +4,7 @@ import "github.com/spf13/viper"
 
 func Load() *viper.Viper {
 	v := viper.New()
-	v.AddConfigPath("config")
+	v.AddConfigPath("configs")
 	err := v.ReadInConfig()
 	if err != nil {
 		panic(err)

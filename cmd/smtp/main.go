@@ -1,18 +1,17 @@
 package main
 
 import (
-	"bytes"
 	"errors"
-	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"strings"
 
-	"smtp2postmanq/amqp"
-	"smtp2postmanq/config"
-	"smtp2postmanq/healthcheck"
-	"smtp2postmanq/http"
-	"smtp2postmanq/shutdown"
+	"smtp2postmanq/internal/amqp"
+	"smtp2postmanq/internal/config"
+	"smtp2postmanq/internal/healthcheck"
+	"smtp2postmanq/internal/http"
+	"smtp2postmanq/internal/shutdown"
 
 	"github.com/emersion/go-smtp"
 	"github.com/spf13/viper"
@@ -26,50 +25,73 @@ type Backend struct {
 }
 
 // Login handles a login command with username and password.
-func (be *Backend) Login(state *smtp.ConnectionState, username, password string) (smtp.User, error) {
-	// test base 64 auth AHNtdHBfbG9naW4Ac210cF9wYXNzd29yZA==
+func (be *Backend) Login(_ *smtp.ConnectionState, username, password string) (smtp.Session, error) {
 	if username != be.cfg.GetString("smtp.login") || password != be.cfg.GetString("smtp.password") {
 		return nil, errors.New("invalid username or password")
 	}
-	return &User{cfg: be.cfg, amqp: be.amqp}, nil
+	return &Session{cfg: be.cfg, amqp: be.amqp}, nil
 }
 
 // AnonymousLogin requires clients to authenticate using SMTP AUTH before sending emails
-func (be *Backend) AnonymousLogin(state *smtp.ConnectionState) (smtp.User, error) {
-	fmt.Println(state)
+func (be *Backend) AnonymousLogin(state *smtp.ConnectionState) (smtp.Session, error) {
 	return nil, smtp.ErrAuthRequired
 }
 
-// A User is returned after successful login.
-type User struct {
+// A Session is returned after successful login.
+type Session struct {
 	cfg  *viper.Viper
 	amqp amqp.IAMQP
+	msg  *message
 }
 
-// Send handles an email.
-func (u *User) Send(from string, to []string, r io.Reader) (err error) {
-	buf := new(bytes.Buffer)
-	if _, err = buf.ReadFrom(r); err != nil {
-		return
-	} else {
-		var recepient string
-		if len(to) > 0 {
-			recepient = to[0]
-		}
-		err = u.amqp.SendEmailToQueue(amqp.SendMail{
-			Envelop:   from,
-			Recipient: recepient,
-			Body:      buf.Bytes(),
-		})
-		if err != nil {
-			return
-		}
-	}
-	return
+type message struct {
+	From string
+	To   []string
+	Data []byte
+	Opts smtp.MailOptions
 }
 
 // Logout handles logout.
-func (u *User) Logout() error {
+func (s *Session) Logout() error {
+	return nil
+}
+
+// Reset message.
+func (s *Session) Reset() {
+	s.msg = &message{}
+}
+
+// Mail init mailing
+func (s *Session) Mail(from string, opts smtp.MailOptions) error {
+	s.Reset()
+	s.msg.From = from
+	s.msg.Opts = opts
+	return nil
+}
+
+// Rcpt add recepient
+func (s *Session) Rcpt(to string) error {
+	s.msg.To = append(s.msg.To, to)
+	return nil
+}
+
+// Data add message body and send message
+func (s *Session) Data(r io.Reader) error {
+	if b, err := ioutil.ReadAll(r); err != nil {
+		return err
+	} else {
+		for _, r := range s.msg.To {
+			err = s.amqp.SendEmailToQueue(amqp.SendMail{
+				Envelop:   s.msg.From,
+				Recipient: r,
+				Body:      b,
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -88,7 +110,6 @@ func main() {
 
 	s.Addr = be.cfg.GetString("smtp.addr")
 	s.Domain = be.cfg.GetString("smtp.domain")
-	s.MaxIdleSeconds = 300
 	s.MaxMessageBytes = 1024 * 1024
 	s.MaxRecipients = 50
 	s.AllowInsecureAuth = true
