@@ -1,83 +1,74 @@
 package healthcheck
 
 import (
+	"context"
+	"errors"
 	"net/http"
+	"runtime"
 	"time"
 
-	"github.com/Halfi/healthcheck"
-	"github.com/jinzhu/gorm"
+	"github.com/alexliesenfeld/health"
 )
 
 type Handler struct {
-	handler      healthcheck.Handler
-	checks       map[string]healthcheck.Check
+	handler      http.HandlerFunc
+	checks       map[string]health.CheckerOption
 	routineCount int
 	dnsTimeout   time.Duration
 	dnsCheck     map[string]string
-	db           *gorm.DB
-	dbTimeout    time.Duration
 }
 
 type IHealthHandler interface {
 	Init()
-	AddCheck(name string, check healthcheck.Check)
-	GetLiveEndpoint() func(http.ResponseWriter, *http.Request)
-	GetReadyEndpoint() func(http.ResponseWriter, *http.Request)
+	AddCheck(name string, check health.CheckerOption)
+	GetEndpoint() http.HandlerFunc
 	SetMaxRoutineCount(cnt int)
-	AddDnsCheck(name string, host string)
-	AddDBCheck(db *gorm.DB)
 }
 
-func ProvideHandler() IHealthHandler {
+func Provide() IHealthHandler {
 	return &Handler{
-		handler:      healthcheck.NewHandler(),
-		checks:       make(map[string]healthcheck.Check),
+		checks:       make(map[string]health.CheckerOption),
 		routineCount: 100,
 		dnsTimeout:   50 * time.Millisecond,
 		dnsCheck:     make(map[string]string),
-		dbTimeout:    1 * time.Second,
 	}
 }
 
 func (h *Handler) Init() {
-	h.handler.AddLivenessCheck("goroutine-threshold", healthcheck.GoroutineCountCheck(h.routineCount))
+	checks := []health.CheckerOption{
+		// Set the time-to-live for our cache to 1 second (default).
+		health.WithCacheDuration(1 * time.Second),
 
-	for name, host := range h.dnsCheck {
-		h.handler.AddLivenessCheck(name, healthcheck.DNSResolveCheck(host, h.dnsTimeout))
+		// Configure a global timeout that will be applied to all checks.
+		health.WithTimeout(10 * time.Second),
+
+		health.WithCheck(health.Check{
+			Name:  "goroutine-threshold",
+			Check: h.routineChecker,
+		}),
 	}
 
-	if h.db != nil {
-		db := h.db.DB()
-		if db != nil {
-			h.handler.AddLivenessCheck("database", healthcheck.DatabasePingCheck(db, h.dbTimeout))
-		}
-	}
-
-	for name, check := range h.checks {
-		h.handler.AddLivenessCheck(name, check)
-	}
+	h.handler = health.NewHandler(health.NewChecker(
+		checks...,
+	))
 }
 
-func (h *Handler) AddCheck(name string, check healthcheck.Check) {
+func (h *Handler) AddCheck(name string, check health.CheckerOption) {
 	h.checks[name] = check
 }
 
-func (h *Handler) GetLiveEndpoint() func(http.ResponseWriter, *http.Request) {
-	return h.handler.LiveEndpoint
-}
-
-func (h *Handler) GetReadyEndpoint() func(http.ResponseWriter, *http.Request) {
-	return h.handler.ReadyEndpoint
+func (h *Handler) GetEndpoint() http.HandlerFunc {
+	return h.handler
 }
 
 func (h *Handler) SetMaxRoutineCount(cnt int) {
 	h.routineCount = cnt
 }
 
-func (h *Handler) AddDnsCheck(name string, host string) {
-	h.dnsCheck[name] = host
-}
+func (h *Handler) routineChecker(_ context.Context) error {
+	if runtime.NumGoroutine() > h.routineCount {
+		return errors.New("too much routines")
+	}
 
-func (h *Handler) AddDBCheck(db *gorm.DB) {
-	h.db = db
+	return nil
 }

@@ -1,4 +1,4 @@
-FROM golang:1.14.6-alpine AS builder
+FROM golang:1.17-alpine3.15 AS builder
 
 RUN apk add --update --no-cache make bash git openssh-client build-base musl-dev curl wget
 
@@ -10,7 +10,7 @@ RUN export CGO_ENABLED=0 && \
     export GO111MODULE=on && \
     go build -o ./bin/app -ldflags '-s -w' cmd/smtp/main.go
 
-FROM alpine:3.12
+FROM alpine:3.15
 
 COPY --from=builder /usr/local/go/lib/time/zoneinfo.zip /usr/local/go/lib/time/zoneinfo.zip
 COPY --from=builder /src/app/bin/app /app

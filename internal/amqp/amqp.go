@@ -3,21 +3,19 @@ package amqp
 //go:generate easyjson
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
-	"time"
 
-	"smtp2postmanq/internal/healthcheck"
-	"smtp2postmanq/internal/shutdown"
-	"smtp2postmanq/internal/utils"
+	"github.com/alexliesenfeld/health"
 
 	"github.com/spf13/viper"
 	"github.com/streadway/amqp"
-)
 
-const heathcheckInterval = 5 * time.Second
+	"smtp2postmanq/internal/healthcheck"
+)
 
 var (
 	ConnectionClosed = errors.New("connection closed")
@@ -30,24 +28,18 @@ type SendMail struct {
 	Body      []byte `json:"body"`
 }
 
-type IAMQP interface {
-	SendEmailToQueue(send SendMail) error
-}
-
-type amqpProvider struct {
+type Provider struct {
 	conn               *amqp.Connection
 	channel            *amqp.Channel
 	cfg                *viper.Viper
-	healthcheckHandler healthcheck.IHealthHandler
-	shutDown           shutdown.IGracefullShutdown
+	healthCheckHandler healthcheck.IHealthHandler
 }
 
-func Provide(cfg *viper.Viper, healthcheckHandler healthcheck.IHealthHandler, shutDown shutdown.IGracefullShutdown) IAMQP {
-	que := &amqpProvider{
+func Provide(cfg *viper.Viper, healthCheckHandler healthcheck.IHealthHandler) *Provider {
+	que := &Provider{
 		cfg:                cfg,
 		conn:               new(amqp.Connection),
-		healthcheckHandler: healthcheckHandler,
-		shutDown:           shutDown,
+		healthCheckHandler: healthCheckHandler,
 	}
 
 	err := que.connect()
@@ -55,31 +47,38 @@ func Provide(cfg *viper.Viper, healthcheckHandler healthcheck.IHealthHandler, sh
 		log.Panic(err)
 	}
 
-	que.healthcheckInit()
-	que.closer()
+	que.healthCheckInit()
 
 	return que
 }
 
-func (que *amqpProvider) closer() {
-	go func() {
-		if que.shutDown.IsShutdown() {
+func (que *Provider) Run(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
 			err := que.channel.Close()
-			if err == nil {
-				que.channel = nil
+			que.channel = nil
+			if err != nil {
+				return err
 			}
 
 			err = que.conn.Close()
-			if err == nil {
-				que.conn = nil
+			que.conn = nil
+			if err != nil {
+				return err
 			}
 
-			que.shutDown.ShutdownSuccess()
+			return nil
+		case err := <-que.conn.NotifyClose(make(chan *amqp.Error)):
+			que.conn = nil
+			que.channel = nil
+
+			return err
 		}
-	}()
+	}
 }
 
-func (que *amqpProvider) connect() (err error) {
+func (que *Provider) connect() (err error) {
 	authString := ""
 	login := que.cfg.GetString("amqp.login")
 	if login != "" {
@@ -113,7 +112,7 @@ func (que *amqpProvider) connect() (err error) {
 	return
 }
 
-func (que *amqpProvider) initQueue() (err error) {
+func (que *Provider) initQueue() (err error) {
 	que.channel, err = que.conn.Channel()
 	if err != nil {
 		return
@@ -158,19 +157,7 @@ func (que *amqpProvider) initQueue() (err error) {
 	return
 }
 
-func (que *amqpProvider) initCheckAMQPConnection() {
-	go func() {
-		for err := range que.conn.NotifyClose(make(chan *amqp.Error)) {
-			if err != nil {
-				log.Print(err)
-			}
-			que.conn = nil
-			que.channel = nil
-		}
-	}()
-}
-
-func (que *amqpProvider) checkAMQPConnection() error {
+func (que *Provider) checkAMQPConnection() error {
 	if que.conn == nil {
 		return ConnectionClosed
 	}
@@ -178,25 +165,23 @@ func (que *amqpProvider) checkAMQPConnection() error {
 	return nil
 }
 
-func (que *amqpProvider) healthcheckInit() {
-	if que.healthcheckHandler != nil {
-		que.initCheckAMQPConnection()
+func (que *Provider) healthCheckInit() {
+	if que.healthCheckHandler != nil {
 
-		healthcheckErr := errors.New("amqp is not ready")
+		que.healthCheckHandler.AddCheck("amqp_check", health.WithCheck(health.Check{
+			Name: "goroutine-threshold",
+			Check: func(ctx context.Context) error {
+				if st := que.conn.ConnectionState(); !st.HandshakeComplete || que.conn == nil {
+					return fmt.Errorf("expected to complete a TLS handshake, TLS connection state: %+v", st)
+				}
 
-		interval := utils.CreateInterval(func() {
-			healthcheckErr = que.checkAMQPConnection()
-		}, heathcheckInterval)
-
-		que.healthcheckHandler.AddCheck("amqp_check", func() (err error) {
-			interval.Lock()
-			defer interval.Unlock()
-			return healthcheckErr
-		})
+				return nil
+			},
+		}))
 	}
 }
 
-func (que *amqpProvider) SendEmailToQueue(send SendMail) error {
+func (que *Provider) SendEmailToQueue(send *SendMail) error {
 	if que.channel == nil {
 		return ConnectionClosed
 	}
