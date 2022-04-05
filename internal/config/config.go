@@ -2,9 +2,9 @@ package config
 
 import "github.com/spf13/viper"
 
-func Load() *viper.Viper {
+func Load(cfgPath string) *viper.Viper {
 	v := viper.New()
-	v.AddConfigPath("configs")
+	v.AddConfigPath(cfgPath)
 	err := v.ReadInConfig()
 	if err != nil {
 		panic(err)

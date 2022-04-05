@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"net/http"
 
@@ -13,12 +14,15 @@ import (
 )
 
 func main() {
+	cfgPath := flag.String("cfg", "configs", "-c=configs")
+	flag.Parse()
+
 	ctx := context.Background()
 
 	hc := healthcheck.Provide()
 	hc.SetMaxRoutineCount(200)
 
-	cfg := config.Load()
+	cfg := config.Load(*cfgPath)
 
 	amqpProvider := amqp.Provide(cfg, hc)
 
