@@ -9,7 +9,9 @@ amqp:
   host: 'localhost'
   port: 5672
   virtual_host: ''
-  queue: 'postmanq'
   routing_key: ''
 http:
   addr: ':1333'
+domains:
+  example.com: example_com
+  example2.com: example2_com

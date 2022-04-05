@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/alexliesenfeld/health"
 
@@ -118,40 +119,20 @@ func (que *Provider) initQueue() (err error) {
 		return
 	}
 
-	err = que.channel.ExchangeDeclare(
-		que.cfg.GetString("amqp.queue"),
-		"fanout",
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		return
-	}
-
-	_, err = que.channel.QueueDeclare(
-		que.cfg.GetString("amqp.queue"),
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		return
-	}
-
-	err = que.channel.QueueBind(
-		que.cfg.GetString("amqp.queue"),
-		que.cfg.GetString("amqp.routing_key"),
-		que.cfg.GetString("amqp.queue"),
-		false,
-		nil,
-	)
-	if err != nil {
-		return
+	domains := que.cfg.GetStringMapString("domains")
+	for _, exchange := range domains {
+		err = que.channel.ExchangeDeclare(
+			exchange,
+			"fanout",
+			true,
+			false,
+			false,
+			false,
+			nil,
+		)
+		if err != nil {
+			return
+		}
 	}
 
 	return
@@ -191,8 +172,16 @@ func (que *Provider) SendEmailToQueue(send *SendMail) error {
 		return err
 	}
 
+	domains := que.cfg.GetStringMapString("domains")
+
+	exchange := domains[getDomainByEmail(send.Envelop)]
+
+	if exchange == "" {
+		return fmt.Errorf("wrong envelop domain")
+	}
+
 	return que.channel.Publish(
-		que.cfg.GetString("amqp.queue"),
+		exchange,
 		que.cfg.GetString("amqp.routing_key"),
 		false,
 		false,
@@ -202,4 +191,13 @@ func (que *Provider) SendEmailToQueue(send *SendMail) error {
 			Body:         body,
 		},
 	)
+}
+
+func getDomainByEmail(email string) string {
+	components := strings.Split(email, "@")
+	if len(components) > 1 {
+		return components[1]
+	}
+
+	return ""
 }

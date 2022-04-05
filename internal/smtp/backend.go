@@ -81,18 +81,19 @@ func (s *Session) Rcpt(to string) error {
 
 // Data add message body and send message
 func (s *Session) Data(r io.Reader) error {
-	if b, err := ioutil.ReadAll(r); err != nil {
+	b, err := ioutil.ReadAll(r)
+	if err != nil {
 		return err
-	} else {
-		for _, r := range s.msg.To {
-			err = s.amqp.SendEmailToQueue(&amqp.SendMail{
-				Envelop:   s.msg.From,
-				Recipient: r,
-				Body:      b,
-			})
-			if err != nil {
-				return err
-			}
+	}
+
+	for _, r := range s.msg.To {
+		err = s.amqp.SendEmailToQueue(&amqp.SendMail{
+			Envelop:   s.msg.From,
+			Recipient: r,
+			Body:      b,
+		})
+		if err != nil {
+			return err
 		}
 	}
 
